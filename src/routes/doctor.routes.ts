@@ -1,55 +1,61 @@
 import { Router, Request, Response } from 'express';
 import prisma from '../lib/prisma';
+import { dateAtUtcStart, dateOnlySchema, idSchema } from '../lib/validation';
 
 const router = Router();
 
-// GET /api/doctors/:id/slots?date=2025-03-15 — Get available slots
 router.get('/:id/slots', async (req: Request, res: Response) => {
-    try {
-        const doctorId = parseInt(req.params.id);
-        const { date } = req.query;
+  try {
+    const doctorId = idSchema.parse(req.params.id);
+    const date = dateOnlySchema.parse(req.query.date);
+    const requestedDate = dateAtUtcStart(date);
+    const dayOfWeek = requestedDate.getUTCDay();
 
-        if (!date) {
-            return res.status(400).json({ error: 'date query parameter is required' });
-        }
+    const schedule = await prisma.doctorSchedule.findUnique({
+      where: { doctorId_dayOfWeek: { doctorId, dayOfWeek } },
+    });
 
-        const requestedDate = new Date(date as string);
-        const dayOfWeek = requestedDate.getDay();
-
-        // Get doctor's schedule for that day
-        const schedule = await prisma.doctorSchedule.findFirst({
-            where: { doctorId, dayOfWeek },
-        });
-
-        if (!schedule) {
-            return res.json({ slots: [], message: 'Doctor not available on this day' });
-        }
-
-        // Generate all possible slots from schedule
-        const slots = generateTimeSlots(schedule.startTime, schedule.endTime, schedule.slotDuration);
-
-        res.json({ slots });
-    } catch (error) {
-        res.status(500).json({ error: 'Something went wrong' });
+    if (!schedule) {
+      return res.status(200).json({ slots: [], message: 'Doctor not available on this day' });
     }
+
+    const allSlots = generateTimeSlots(schedule.startTime, schedule.endTime, schedule.slotDuration);
+    const end = new Date(requestedDate.getTime() + 24 * 60 * 60 * 1000);
+
+    const appointments = await prisma.appointment.findMany({
+      where: {
+        doctorId,
+        date: { gte: requestedDate, lt: end },
+        status: { in: ['BOOKED', 'COMPLETED'] },
+      },
+      select: { timeSlot: true },
+    });
+
+    const booked = new Set(appointments.map((a) => a.timeSlot));
+    return res.json({ slots: allSlots.filter((slot) => !booked.has(slot)) });
+  } catch (error) {
+    if (error instanceof Error && error.name === 'ZodError') {
+      return res.status(400).json({ error: 'Invalid request parameters', details: error });
+    }
+    console.error(error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
 function generateTimeSlots(start: string, end: string, durationMinutes: number): string[] {
-    const slots: string[] = [];
-    const [startH, startM] = start.split(':').map(Number);
-    const [endH, endM] = end.split(':').map(Number);
+  const slots: string[] = [];
+  const [startH, startM] = start.split(':').map(Number);
+  const [endH, endM] = end.split(':').map(Number);
+  let currentMinutes = startH * 60 + startM;
+  const endMinutes = endH * 60 + endM;
 
-    let currentMinutes = startH * 60 + startM;
-    const endMinutes = endH * 60 + endM;
-
-    while (currentMinutes < endMinutes) {
-        const h = Math.floor(currentMinutes / 60);
-        const m = currentMinutes % 60;
-        slots.push(`${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`);
-        currentMinutes += durationMinutes;
-    }
-
-    return slots;
+  while (currentMinutes + durationMinutes <= endMinutes) {
+    const h = Math.floor(currentMinutes / 60);
+    const m = currentMinutes % 60;
+    slots.push(`${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`);
+    currentMinutes += durationMinutes;
+  }
+  return slots;
 }
 
 export default router;
