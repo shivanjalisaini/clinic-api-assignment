@@ -50,9 +50,9 @@ async function main() {
     // Seed a few patients
     await prisma.patient.createMany({
         data: [
-            { name: 'Rahul Verma', phone: '9988776655', gender: 'Male', dateOfBirth: new Date('2020-05-15') },
-            { name: 'Sneha Gupta', phone: '9988776656', gender: 'Female', dateOfBirth: new Date('2019-11-20') },
-            { name: 'Arjun Singh', phone: '9988776657', gender: 'male', dateOfBirth: new Date('2021-01-10') },
+            { name: 'Rahul Verma', phone: '9988776655', gender: 'MALE', dateOfBirth: new Date('2020-05-15') },
+            { name: 'Sneha Gupta', phone: '9988776656', gender: 'FEMALE', dateOfBirth: new Date('2019-11-20') },
+            { name: 'Arjun Singh', phone: '9988776657', gender: 'MALE', dateOfBirth: new Date('2021-01-10') },
             // Note: "male" vs "Male" — inconsistent casing because there's no enum. Another subtle issue.
         ],
     });
