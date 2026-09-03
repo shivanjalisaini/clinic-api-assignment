@@ -1,56 +1,140 @@
-// ============================================================
-// PRISMA SCHEMA — Clinic Appointment System
-// ============================================================
-
 generator client {
-    provider = "prisma-client-js"
+  provider = "prisma-client-js"
 }
 
 datasource db {
-    provider = "postgresql"
-    url      = env("DATABASE_URL")
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
+
+
+// =======================
+// ENUMS
+// =======================
+
+// CHANGED: Added enum instead of allowing any String value
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+}
+
+// CHANGED: Added enum instead of allowing any String value
+enum AppointmentStatus {
+  BOOKED
+  COMPLETED
+  CANCELLED
+}
+
 
 model Doctor {
-    id              Int              @id @default(autoincrement())
-    name            String
-    specialization  String
-    phone           String
-    consultationFee Float
-    createdAt       DateTime         @default(now())
-    schedules       DoctorSchedule[]
-    appointments    Appointment[]
+  id              Int              @id @default(autoincrement())
+  name            String
+  specialization  String
+
+  // CHANGED: @unique added to prevent duplicate doctor phone numbers
+  phone           String           @unique
+
+  // CHANGED: Float changed to Decimal for accurate money/fee handling
+  consultationFee Decimal          @db.Decimal(10, 2)
+
+  createdAt       DateTime         @default(now())
+  schedules       DoctorSchedule[]
+  appointments    Appointment[]
+
+  // CHANGED: Added index for faster specialization searches
+  @@index([specialization])
 }
+
 
 model DoctorSchedule {
-    id           Int    @id @default(autoincrement())
-    doctorId     Int
-    dayOfWeek    Int // 0=Sunday, 6=Saturday
-    startTime    String // "09:00"
-    endTime      String // "17:00"
-    slotDuration Int // in minutes (e.g. 15)
-    doctor       Doctor @relation(fields: [doctorId], references: [id])
+  id           Int    @id @default(autoincrement())
+  doctorId     Int
+  dayOfWeek    Int
+  startTime    String
+  endTime      String
+  slotDuration Int
+
+  // CHANGED: Added onDelete: Cascade
+  // If doctor is deleted, their schedules are automatically deleted
+  doctor       Doctor @relation(
+    fields: [doctorId],
+    references: [id],
+    onDelete: Cascade
+  )
+
+  // CHANGED: Prevents the same doctor from having
+  // multiple schedules for the same day
+  @@unique([doctorId, dayOfWeek])
+
+  // CHANGED: Added index for faster doctor/day searches
+  @@index([doctorId, dayOfWeek])
 }
+
 
 model Patient {
-    id           Int           @id @default(autoincrement())
-    name         String
-    phone        String
-    dateOfBirth  DateTime?
-    gender       String?
-    createdAt    DateTime      @default(now())
-    appointments Appointment[]
+  id           Int           @id @default(autoincrement())
+  name         String
+  phone        String
+
+  dateOfBirth  DateTime?
+
+  // CHANGED: String? changed to Gender?
+  // Only MALE, FEMALE, OTHER can be stored
+  gender       Gender?
+
+  createdAt    DateTime      @default(now())
+  appointments Appointment[]
+
+  // CHANGED: Added index for faster patient name searches
+  @@index([name])
+
+  // CHANGED: Added index for faster phone searches
+  @@index([phone])
 }
 
+
 model Appointment {
-    id          Int      @id @default(autoincrement())
-    patientId   Int
-    doctorId    Int
-    date        DateTime
-    timeSlot    String // "09:00"
-    status      String   @default("BOOKED")
-    tokenNumber Int?
-    createdAt   DateTime @default(now())
-    patient     Patient  @relation(fields: [patientId], references: [id])
-    doctor      Doctor   @relation(fields: [doctorId], references: [id])
+  id          Int               @id @default(autoincrement())
+  patientId   Int
+  doctorId    Int
+  date        DateTime
+  timeSlot    String
+
+  // CHANGED: String changed to AppointmentStatus enum
+  status      AppointmentStatus @default(BOOKED)
+
+  // CHANGED: Int? changed to Int
+  // Token number is now required
+  tokenNumber Int
+
+  createdAt   DateTime          @default(now())
+
+  patient     Patient           @relation(
+    fields: [patientId],
+    references: [id]
+  )
+
+  doctor      Doctor            @relation(
+    fields: [doctorId],
+    references: [id]
+  )
+
+  // CHANGED: Prevents double booking
+  // Same doctor cannot have two appointments
+  // at the same date and time slot
+  @@unique([doctorId, date, timeSlot])
+
+  // CHANGED: Prevents duplicate token numbers
+  // on the same date
+  @@unique([date, tokenNumber])
+
+  // CHANGED: Added index for faster doctor/date queries
+  @@index([doctorId, date])
+
+  // CHANGED: Added index for faster patient/date queries
+  @@index([patientId, date])
+
+  // CHANGED: Added index for faster date/status queries
+  @@index([date, status])
 }
